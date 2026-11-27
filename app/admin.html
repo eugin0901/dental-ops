@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>운영자 대시보드</title>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 파일럿 운영자가 매주 들여다보는 점검표. 숫자는 정직하게, 결정은 쉽게
+   IDEA: 메뉴 × 치과 사용량 히트맵 - 어떤 메뉴가 살아남고 어떤 메뉴를 뺄지 한눈에
+   PICTURE: 상단 요약 숫자 4개, 그 아래 메뉴별 사용 히트맵이 화면의 중심
+   COLOUR and TYPE: 운영 관리 사이트와 같은 딥 틸 #0b4f5c, 산호 #ff6a4d / IBM Plex Sans KR + Noto Sans KR
+   LAYOUT: 띠 헤더, 요약 타일, 히트맵, 치과 목록, 의견 목록 순서. 넓은 표는 가로 스크롤 */
+:root{color-scheme:light dark;--bg:light-dark(#fff,#0c1416);--ink:light-dark(#10232a,#e6f0f2);--mute:light-dark(#5a6e74,#93a9ae);--deep:light-dark(#0b4f5c,#0f3a43);--zone:light-dark(#eef6f7,#13242a);--line:light-dark(#d7e5e8,#24393f);--acc:#ff6a4d;--accbg:light-dark(#fff0ec,#3a1d17);--ok:light-dark(#0b7a6a,#4fd1b8);--okbg:light-dark(#e3f4f0,#12302b)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Noto Sans KR",system-ui,sans-serif;overflow-x:clip}
+h1,h2,h3{font-family:"IBM Plex Sans KR","Noto Sans KR",sans-serif;margin:0;line-height:1.2}
+[hidden]{display:none!important}
+header{background:var(--deep);color:#fff;padding:18px max(5vw,16px)}
+header .w{max-width:1240px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
+header h1{font-size:clamp(22px,3vw,28px)}
+main{padding:24px max(5vw,16px) 56px}.w{max-width:1240px;margin:0 auto}
+button,select{font:500 15px "Noto Sans KR",sans-serif;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--zone);color:var(--ink);cursor:pointer;min-height:44px}
+button.pri{background:var(--deep);color:#fff;border-color:var(--deep)}
+header button{background:transparent;color:#fff;border-color:rgba(255,255,255,.4);min-height:36px}
+button:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 28px}
+.tiles div{background:var(--zone);border-radius:14px;padding:14px 16px}.tiles small{display:block;color:var(--mute);font-size:13px}.tiles strong{font:700 30px "IBM Plex Sans KR",sans-serif}
+.head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:0 0 10px}
+.head h2{font-size:22px}.head p{margin:4px 0 0;color:var(--mute);font-size:14px;max-width:70ch}
+.sec{margin-bottom:36px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14.5px}
+th{text-align:left;font-weight:500;color:var(--mute);font-size:13px;padding:8px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.heat td.c{text-align:center;font-variant-numeric:tabular-nums;min-width:70px}
+.heat td.c span{display:block;border-radius:6px;padding:4px 0;font-size:13.5px}
+.heat th.cl{writing-mode:horizontal-tb;max-width:110px;white-space:normal;text-align:center}
+.bar{display:flex;gap:6px;align-items:center}.bar i{display:block;height:8px;border-radius:4px;background:var(--deep);min-width:2px}
+.b{display:inline-block;font-size:12.5px;font-weight:500;padding:2px 8px;border-radius:20px;white-space:nowrap;background:var(--zone);color:var(--mute)}
+.b.w{background:var(--accbg);color:var(--acc)}.b.o{background:var(--okbg);color:var(--ok)}
+.fb li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid var(--line)}
+.fb{list-style:none;margin:0;padding:0}.fb small{display:block;color:var(--mute);font-size:12.5px}.fb select{min-height:36px;font-size:14px;padding:4px 8px}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.gate{max-width:560px;margin:8vh auto;background:var(--zone);border-radius:18px;padding:30px 26px;text-align:center}
+.gate p{color:var(--mute)}.gate code{display:block;text-align:left;background:var(--bg);border-radius:10px;padding:12px;font-size:13px;white-space:pre-wrap;word-break:break-all;margin:12px 0}
+.kakao{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:320px;background:#FEE500;color:rgba(0,0,0,.85);border:0;border-radius:12px;font-weight:700;font-size:16px;min-height:52px}
+.note{font-size:13.5px;color:var(--mute)}
+@media(max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.fb li{grid-template-columns:minmax(0,1fr)}}
+code.key{display:block;word-break:break-all;background:var(--zone,#f3f3f3);padding:10px;border-radius:8px;margin:4px 0 12px;user-select:all}
+</style>
+</head>
+<body>
+<header><div class="w"><h1>운영자 대시보드</h1><div class="filters"><select id="days" aria-label="기간"><option value="7">최근 7일</option><option value="30" selected>최근 30일</option><option value="90">최근 90일</option></select><button type="button" id="csv">사용량 CSV</button><button type="button" id="out">로그아웃</button></div></div></header>
+<main><div class="w" id="app"><p class="note">불러오는 중…</p></div></main>
+<script>
+{
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const CFG=window.APP_CONFIG||{};
+const MENUS=[['my','내 화면'],['home','치과 현황'],['role','역할·할 일'],['notice','공지'],['task','업무 전달'],['inv','재고 목록'],['order','주문 견적서'],['lab','기공물'],['ster','멸균·소독'],['equip','장비 점검'],['repair','장비 수리'],['vendor','거래처'],['shift','근무표'],['attend','출퇴근'],['staff','직원관리'],['manual','매뉴얼'],['mkt','마케팅'],['users','관리자 설정']];
+const EDIT_MAP={rolechk:'role',att:'attend',leave:'staff',edu:'staff',staffpriv:'staff',daily:'ster',invcfg:'inv',nread:'notice'};
+const FB_ST=['새 의견','검토 중','반영 예정','반영 완료','보류'];
+let sb=null,CLS=[],USE=[],FB=[],fbFilter='',days=30;
+const T=(l,c)=>`<span class="b ${c||''}">${esc(l)}</span>`;
+const mname=k=>(MENUS.find(m=>m[0]===k)||[k,k||'-'])[1];
+function gate(h){$('app').innerHTML=`<div class="gate">${h}</div>`}
+async function load(){
+  const [c,u,f]=await Promise.all([sb.rpc('op_clinics'),sb.rpc('op_usage',{p_days:days}),sb.from('feedback').select('*').order('created_at',{ascending:false}).limit(500)]);
+  if(c.error||u.error||f.error){gate('<h2>불러오지 못했어요</h2><p>'+esc((c.error||u.error||f.error).message)+'</p>');return}
+  CLS=c.data||[];USE=(u.data||[]).map(r=>({...r,module:r.kind==='edit'?(EDIT_MAP[r.module]||r.module):r.module,total:Number(r.total),users:Number(r.users),days:Number(r.days)}));FB=f.data||[];render();
+}
+function agg(){const m={};for(const r of USE){const k=r.module;m[k]=m[k]||{view:0,edit:0,cl:new Set(),by:{}};m[k][r.kind]+=r.total;m[k].cl.add(r.clinic_id);m[k].by[r.clinic_id]=(m[k].by[r.clinic_id]||0)+r.total}return m}
+function render(){
+  const A=agg(),n=CLS.length,act=CLS.filter(c=>Number(c.active_users_7d)>0).length,staff=CLS.reduce((t,c)=>t+Number(c.members),0),nf=FB.filter(x=>(x.status||'새 의견')==='새 의견').length;
+  const rows=MENUS.map(([k,l])=>({k,l,a:A[k]||{view:0,edit:0,cl:new Set(),by:{}}})).sort((x,y)=>(y.a.view+y.a.edit)-(x.a.view+x.a.edit));
+  const mx=Math.max(1,...rows.map(r=>r.a.view+r.a.edit)),cmx=Math.max(1,...rows.flatMap(r=>Object.values(r.a.by)));
+  const cell=(v)=>{if(!v)return '<span style="color:var(--mute)">·</span>';const t=Math.min(1,v/cmx);return `<span style="background:color-mix(in srgb,var(--deep) ${Math.round(15+t*70)}%,transparent);color:${t>.45?'#fff':'var(--ink)'}">${v}</span>`};
+  const offCount=k=>CLS.filter(c=>(c.menus_off||[]).includes(k)).length;
+  const cname=id=>(CLS.find(c=>c.id===id)||{}).name||'(삭제된 치과)';
+  const fbs=FB.filter(x=>!fbFilter||(x.status||'새 의견')===fbFilter);
+  $('app').innerHTML=`<div class="tiles"><div><small>파일럿 치과</small><strong>${n}</strong></div><div><small>최근 7일 사용한 치과</small><strong>${act}</strong></div><div><small>승인된 직원 합계</small><strong>${staff}</strong></div><div><small>새 의견</small><strong style="${nf?'color:var(--acc)':''}">${nf}</strong></div></div>
+  <section class="sec"><div class="head"><div><h2>메뉴별 사용량</h2><p>최근 ${days}일 동안 메뉴를 연 횟수와 기록을 저장한 횟수예요. '사용 치과'가 적고 '끈 치과'가 많은 메뉴는 빼거나 합칠 후보예요. 기록 내용은 수집하지 않아요.</p></div></div>
+   <div class="scroll"><table class="heat"><thead><tr><th>메뉴</th><th class="n">열람</th><th class="n">저장</th><th class="n">사용 치과</th><th class="n">끈 치과</th><th style="min-width:140px">비중</th>${CLS.map(c=>`<th class="cl">${esc(c.name)}</th>`).join('')}</tr></thead><tbody>
+   ${rows.map(r=>`<tr><td>${esc(r.l)}</td><td class="n">${r.a.view}</td><td class="n">${r.a.edit}</td><td class="n">${r.a.cl.size} / ${n}${n&&r.a.cl.size/n<.3&&r.k!=='users'?' '+T('적음','w'):''}</td><td class="n">${offCount(r.k)||''}</td><td><div class="bar"><i style="width:${Math.round((r.a.view+r.a.edit)/mx*100)}%"></i></div></td>${CLS.map(c=>`<td class="c">${cell(r.a.by[c.id]||0)}</td>`).join('')}</tr>`).join('')}
+   </tbody></table></div></section>
+  <section class="sec"><div class="head"><div><h2>치과별 현황</h2><p>최근 사용일이 오래된 치과는 연락해서 막힌 부분이 없는지 확인해 보세요.</p></div></div>
+   <div class="scroll"><table><thead><tr><th>치과</th><th>가입일</th><th class="n">직원</th><th class="n">승인 대기</th><th class="n">기록 수</th><th>최근 사용</th><th class="n">7일 사용자</th><th>꺼 둔 메뉴</th></tr></thead><tbody>
+   ${CLS.map(c=>{const last=c.last_active,gap=last?Math.round((Date.now()-new Date(last+'T00:00'))/864e5):null;return `<tr><td>${esc(c.name)}</td><td class="n">${esc(String(c.created_at).slice(0,10))}</td><td class="n">${Number(c.members)}</td><td class="n">${Number(c.pending)||''}</td><td class="n">${Number(c.records)}</td><td>${last?esc(last)+' '+(gap>7?T(gap+'일 전','w'):''):T('사용 기록 없음','w')}</td><td class="n">${Number(c.active_users_7d)}</td><td>${(c.menus_off||[]).map(mname).map(esc).join(', ')}</td></tr>`}).join('')||'<tr><td colspan="8" class="note">아직 가입한 치과가 없어요.</td></tr>'}
+   </tbody></table></div></section>
+  <section class="sec"><div class="head"><div><h2>의견</h2><p>직원들이 앱에서 보낸 의견이에요. 상태를 바꾸면 해당 치과 관리자 화면에도 보여요.</p></div><div class="filters"><select id="fbf" aria-label="상태 필터"><option value="">전체 상태</option>${FB_ST.map(x=>`<option${x===fbFilter?' selected':''}>${x}</option>`).join('')}</select><button type="button" id="fbcsv">의견 CSV</button></div></div>
+   ${fbs.length?`<ul class="fb">${fbs.map(x=>`<li><span>${T(x.kind,x.kind==='오류 신고'?'w':x.kind==='좋아요'?'o':'')}</span><span>${esc(x.message)}<small>${esc(cname(x.clinic_id))} · ${esc(mname(x.module))} · ${esc(String(x.created_at).slice(0,16).replace('T',' '))}</small></span><select data-fb="${x.id}" aria-label="상태">${FB_ST.map(st=>`<option${st===(x.status||'새 의견')?' selected':''}>${st}</option>`).join('')}</select></li>`).join('')}</ul>`:'<p class="note">해당하는 의견이 없어요.</p>'}</section>
+  <section class="sec"><div class="head"><div><h2>휴대폰 알림 키 만들기</h2><p>처음 한 번만 해요 (README 10단계). 키를 새로 만들면 모든 직원이 알림을 다시 켜야 하니, 한 번 만든 키는 계속 쓰세요.</p></div><div class="filters"><button type="button" id="vapid">키 만들기</button></div></div>
+   <div id="vapidout"></div></section>`;
+}
+async function makeVapid(){
+  const b64u=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const k=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+  const pub=b64u(await crypto.subtle.exportKey('raw',k.publicKey)),priv=(await crypto.subtle.exportKey('jwk',k.privateKey)).d;
+  $('vapidout').innerHTML=`<p class="note"><b>공개 키</b> → config.js 의 VAPID_PUBLIC_KEY 와 Supabase Secrets 의 VAPID_PUBLIC_KEY 두 곳에 넣어요.</p><code class="key">${pub}</code>
+   <p class="note"><b>비밀 키</b> → Supabase Secrets 의 VAPID_PRIVATE_KEY 에만 넣어요. 다른 곳에 붙여넣거나 메신저로 보내지 마세요. 이 화면을 닫으면 다시 볼 수 없어요.</p><code class="key">${priv}</code>`}
+function csv(rows){return '﻿'+rows.map(r=>r.map(v=>{const s=String(v??'');return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}).join(',')).join('\n')}
+function dl(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)}
+document.addEventListener('change',async e=>{
+  if(e.target.id==='days'){days=Number(e.target.value);load();return}
+  if(e.target.id==='fbf'){fbFilter=e.target.value;render();return}
+  if(e.target.dataset.fb){const id=Number(e.target.dataset.fb),st=e.target.value;const {error}=await sb.from('feedback').update({status:st}).eq('id',id);if(error){alertBox('상태를 바꾸지 못했어요: '+error.message);return}const x=FB.find(z=>z.id===id);if(x)x.status=st;render()}
+});
+function alertBox(m){const p=document.createElement('p');p.className='note';p.style.color='var(--acc)';p.textContent=m;$('app').prepend(p);setTimeout(()=>p.remove(),4000)}
+document.addEventListener('click',e=>{
+  if(e.target.id==='vapid'){makeVapid();return}
+  if(e.target.id==='out'){sb.auth.signOut().then(()=>location.reload())}
+  if(e.target.id==='kakao'){sb.auth.signInWithOAuth({provider:'kakao',options:{redirectTo:location.origin+location.pathname}})}
+  if(e.target.id==='csv'){const cn=id=>(CLS.find(c=>c.id===id)||{}).name||'';dl(`메뉴사용량_${days}일.csv`,csv([['치과','메뉴','종류','횟수','사용자 수','사용 일수'],...USE.map(r=>[cn(r.clinic_id),mname(r.module),r.kind==='view'?'열람':'저장',r.total,r.users,r.days])]))}
+  if(e.target.id==='fbcsv'){const cn=id=>(CLS.find(c=>c.id===id)||{}).name||'';dl('의견목록.csv',csv([['날짜','치과','메뉴','종류','내용','상태'],...FB.map(x=>[String(x.created_at).slice(0,16).replace('T',' '),cn(x.clinic_id),mname(x.module),x.kind,x.message,x.status||'새 의견'])]))}
+});
+async function start(session){
+  if(!session){gate(`<h2>운영자 로그인</h2><p>파일럿 운영자 계정으로 로그인하세요.</p><button type="button" class="kakao" id="kakao">카카오로 로그인</button>`);return}
+  const {data:isOp}=await sb.rpc('is_operator');
+  if(!isOp){gate(`<h2>운영자 권한이 없어요</h2><p>이 계정을 운영자로 등록하려면 Supabase SQL Editor에서 아래 한 줄을 실행한 뒤 새로고침하세요.</p><code>insert into public.operators(user_id) values ('${esc(session.user.id)}');</code>`);return}
+  load();
+}
+if(!window.supabase||!CFG.SUPABASE_URL||/여기에/.test(CFG.SUPABASE_URL)){gate('<h2>설정이 필요해요</h2><p>config.js에 Supabase 주소와 키를 넣어 주세요.</p>')}
+else{sb=window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY,{auth:{flowType:'pkce',detectSessionInUrl:true,persistSession:true}});
+  sb.auth.onAuthStateChange((ev,s)=>{if(ev==='INITIAL_SESSION'||ev==='SIGNED_IN'||ev==='SIGNED_OUT')setTimeout(()=>start(s),0)})}
+}
+</script>
+</body>
+</html>
