@@ -1,4 +1,5 @@
 name: 체험판 배포 (GitHub Pages)
+# demo/ 폴더를 https://eugin0901.github.io/dental-ops/ 로 배포해요.
 
 on:
   push:
